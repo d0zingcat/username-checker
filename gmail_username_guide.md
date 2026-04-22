@@ -155,16 +155,29 @@ f.req=[[["NHJMOd","[\"<用户名>\",1,0,null,[null,null,null,null,0,79786],0,40]
 4. 在用户名框输入任意内容（如 `testtest`），等待约 1 秒触发验证
 5. 在 DevTools → Network 中筛选 `batchexecute`，找到 `rpcids=NHJMOd` 的请求
 6. 右键 → **Copy as cURL**
-7. 从中提取以下值，填入 `check_gmail.sh` 脚本顶部的变量：
+7. 直接用 `--curl` 参数运行脚本，自动从剪贴板读取并解析：
+
+```bash
+# 在 DevTools 中 Copy as cURL 后直接运行
+./check_gmail.sh --curl sk7blue blu3skygo
+
+# 或者先保存到文件再读取
+pbpaste > /tmp/curl.txt
+./check_gmail.sh --curl-file /tmp/curl.txt sk7blue blu3skygo
+```
+
+脚本会自动从 curl 命令中提取以下值：
 
 | 脚本变量 | 来自请求的位置 |
 |----------|----------------|
 | `FSID` | URL 参数 `f.sid=` |
 | `TL` | URL 参数 `TL=` |
-| `AT` | `--data-raw` 中 `at=` 后的值（需 URL 解码 `%3A` → `:`）|
+| `AT` | `--data-raw` 中 `at=` 后的值 |
 | `BL` | URL 参数 `bl=` |
 | `GAPS_COOKIE` | Cookie 中 `__Host-GAPS=` 的值 |
 | `NID_COOKIE` | Cookie 中 `NID=` 的值 |
+
+> 也可以手动将这些值填入 `check_gmail.sh` 脚本顶部的配置区，效果相同。
 
 ---
 
