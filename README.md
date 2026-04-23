@@ -2,7 +2,24 @@
 
 批量检查 Gmail 用户名是否可用，基于 Google 官方注册 API（`NHJMOd`）。
 
-## 快速开始
+提供两种使用方式：命令行脚本和 Web 界面。
+
+## Web 界面
+
+依赖：`bun`（或 `node` + `npm`）
+
+```bash
+bun install
+bun run dev
+```
+
+浏览器打开 `http://localhost:3000`，三步完成检查：
+
+1. 从 DevTools 复制 curl 命令粘贴到页面，点击「解析」
+2. 输入想查的用户名（每行一个）
+3. 点击「开始检查」，结果实时展示
+
+## 命令行
 
 依赖：`bash`、`curl`、`python3`
 
@@ -21,13 +38,18 @@ pbpaste > /tmp/curl.txt
 ./check_gmail.sh
 ```
 
-## Session 配置
+使用命令行前需手动将 session 参数填入 `check_gmail.sh` 顶部配置区。
 
-脚本依赖 Google 注册页的 session 参数，有效期通常数小时。过期后有两种更新方式：
+## Session 参数获取
 
-**方式一（推荐）：** 在 DevTools 中右键 Copy as cURL，然后运行 `./check_gmail.sh --curl`，脚本自动从剪贴板读取并解析。
+两种方式都依赖 Google 注册页的 session 参数，有效期通常数小时。获取方法：
 
-**方式二：** 手动将以下值填入 `check_gmail.sh` 顶部配置区：
+1. 无痕窗口访问 `https://accounts.google.com/signup`
+2. 填写信息进入用户名输入页
+3. 输入任意用户名触发验证
+4. DevTools → Network → 找到 `batchexecute?rpcids=NHJMOd` 请求 → 右键 Copy as cURL
+
+Web 界面直接粘贴 curl 命令即可自动解析；命令行可通过 `--curl` 自动读取，或手动提取以下值填入配置区：
 
 - `FSID` — URL 参数 `f.sid`
 - `BL` — URL 参数 `bl`
@@ -36,7 +58,7 @@ pbpaste > /tmp/curl.txt
 - `GAPS_COOKIE` — Cookie `__Host-GAPS`
 - `NID_COOKIE` — Cookie `NID`
 
-抓包步骤详见 [gmail_username_guide.md](gmail_username_guide.md)。
+详细步骤见 [gmail_username_guide.md](gmail_username_guide.md)。
 
 ## 输出示例
 
@@ -47,7 +69,9 @@ pbpaste > /tmp/curl.txt
 
 ## 文件说明
 
-- `check_gmail.sh` — 检查脚本
+- `app/` — Next.js Web 界面
+- `lib/` — curl 解析和 Google API 请求逻辑
+- `check_gmail.sh` — 命令行检查脚本
 - `gmail_username_guide.md` — 完整技术文档（含 ychecker 初筛 + Google API 精确验证流程）
 
 ## 更新日志
