@@ -101,18 +101,36 @@ export function parseGoogleResponse(raw: string, username: string): CheckResult 
 }
 
 function extractSuggestions(val: string): string[] {
-  try {
-    const parsed = JSON.parse(val);
-    const suggestions = parsed[1]?.[0];
-    if (Array.isArray(suggestions)) {
-      return suggestions.filter((v): v is string => typeof v === "string");
-    }
-  } catch {
-    // Fall through to regex extraction below.
+  return extractSuggestionsFromNode(parseJsonSafely(val)).slice(0, 3);
+}
+
+function extractSuggestionsFromNode(node: unknown): string[] {
+  if (typeof node === "string") {
+    if (!node.includes("[null,[[")) return [];
+    return extractSuggestionsFromNode(parseJsonSafely(node));
   }
 
-  const matches = [...val.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  return matches;
+  if (!Array.isArray(node)) return [];
+
+  const direct = node[1]?.[0];
+  if (Array.isArray(direct)) {
+    return direct.filter((v): v is string => typeof v === "string");
+  }
+
+  for (const item of node) {
+    const nested = extractSuggestionsFromNode(item);
+    if (nested.length > 0) return nested;
+  }
+
+  return [];
+}
+
+function parseJsonSafely(val: string): unknown {
+  try {
+    return JSON.parse(val);
+  } catch {
+    return null;
+  }
 }
 
 function extractResponsePayloads(raw: string): string[] {

@@ -216,6 +216,32 @@ import os, re, json, sys
 
 raw = os.environ.get('RAW_RESPONSE', '')
 
+def parse_json_safely(value):
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
+def extract_suggestions_from_node(node):
+    if isinstance(node, str):
+        if '[null,[[' not in node:
+            return []
+        return extract_suggestions_from_node(parse_json_safely(node))
+
+    if not isinstance(node, list):
+        return []
+
+    direct = node[1][0] if len(node) > 1 and isinstance(node[1], list) and node[1] else None
+    if isinstance(direct, list):
+        return [item for item in direct if isinstance(item, str)]
+
+    for item in node:
+        nested = extract_suggestions_from_node(item)
+        if nested:
+            return nested
+
+    return []
+
 def extract_payloads(raw):
     values = []
     seen = set()
@@ -280,10 +306,7 @@ for val in payloads:
         sys.exit()
     if '[null,[[' in val:
         try:
-            parsed = json.loads(val)
-            suggestions = parsed[1][0] if parsed[1] else []
-            if not suggestions:
-                suggestions = re.findall(r'"([^"]+)"', val)
+            suggestions = extract_suggestions_from_node(parse_json_safely(val))
             if suggestions:
                 print('TAKEN        Google 推荐: ' + ', '.join(suggestions[:3]))
             else:
