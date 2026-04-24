@@ -212,58 +212,141 @@ PYEOF
 
   local verdict
   verdict=$(RAW_RESPONSE="$raw" python3 << 'PYEOF'
-import os, re, json
+import os, re, json, sys
 
 raw = os.environ.get('RAW_RESPONSE', '')
 
-m = re.search(r'"NHJMOd","(\[.*?\])"', raw)
-if not m:
-    if '401' in raw or 'Unauthorized' in raw:
-        print('ERR_SESSION  session 已过期，请重新抓包更新配置区')
-    elif 'steps/signup/password' in raw:
-        print('AVAILABLE')
-    else:
-        # 空响应或 session 状态异常，通常是 session 过期
-        if not raw.strip():
-            print('ERR_SESSION  响应为空，session 可能已过期，请重新抓包更新配置区')
-        elif '"er"' in raw:
-            print('ERR_SESSION  session 已过期，请重新抓包更新配置区')
-        else:
-            print('ERR_PARSE    ' + raw[:120].replace('\n', ' '))
+def parse_json_safely(value):
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
+def extract_suggestions_from_node(node):
+    if isinstance(node, str):
+        if '[null,[[' not in node:
+            return []
+        return extract_suggestions_from_node(parse_json_safely(node))
+
+    if not isinstance(node, list):
+        return []
+
+    direct = node[1][0] if len(node) > 1 and isinstance(node[1], list) and node[1] else None
+    if isinstance(direct, list):
+        return [item for item in direct if isinstance(item, str)]
+
+    for item in node:
+        nested = extract_suggestions_from_node(item)
+        if nested:
+            return nested
+
+    return []
+
+def extract_payloads(raw):
+    values = []
+    seen = set()
+
+    def add(value):
+        if not isinstance(value, str) or not value or value in seen:
+            return
+        seen.add(value)
+        values.append(value)
+
+    def walk(node):
+        if isinstance(node, str):
+            add(node)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            for item in node.values():
+                walk(item)
+
+    add(raw)
+
+    for m in re.finditer(r'"NHJMOd","((?:\\.|[^"])*)"', raw):
+        token = m.group(1)
+        try:
+            add(json.loads(f'"{token}"'))
+        except Exception:
+            add(token)
+
+    normalized = re.sub(r"^\)\]\}'\s*", "", raw)
+    for line in normalized.splitlines():
+        line = line.strip()
+        if not line or line.isdigit():
+            continue
+        try:
+            walk(json.loads(line))
+        except Exception:
+            add(line)
+
+    return values
+
+payloads = extract_payloads(raw)
+
+if '401' in raw or 'Unauthorized' in raw:
+    print('ERR_SESSION  session 已过期，请重新抓包更新配置区')
+    sys.exit()
+if not raw.strip():
+    print('ERR_SESSION  响应为空，session 可能已过期，请重新抓包更新配置区')
+    sys.exit()
+if '"er"' in raw:
+    print('ERR_SESSION  session 已过期，请重新抓包更新配置区')
     sys.exit()
 
-val = m.group(1)
+for val in payloads:
+    if 'steps/signup/password' in val:
+        print('AVAILABLE')
+        sys.exit()
 
-if val == '[null,[]]':
-    print('TAKEN')
-elif '[null,[[' in val:
-    try:
-        parsed = json.loads(val)
-        suggestions = parsed[1][0] if parsed[1] else []
-        if suggestions:
-            print('TAKEN        Google 推荐: ' + ', '.join(suggestions[:3]))
-        else:
-            print('TAKEN')
-    except:
+for val in payloads:
+    if val.strip() == '[null,[]]' or '[null,[]]' in val:
         print('TAKEN')
-elif 'steps/signup/password' in val:
-    print('AVAILABLE')
-elif 'must be between' in val:
-    print('ERR_LENGTH   用户名长度不符合要求')
-else:
-    print('UNKNOWN      ' + val[:80])
+        sys.exit()
+    if '[null,[[' in val:
+        try:
+            suggestions = extract_suggestions_from_node(parse_json_safely(val))
+            if suggestions:
+                print('TAKEN        Google 推荐: ' + ', '.join(suggestions[:3]))
+            else:
+                print('TAKEN')
+        except Exception:
+            print('TAKEN')
+        sys.exit()
+    if 'must be between' in val:
+        print('ERR_LENGTH   用户名长度不符合要求')
+        sys.exit()
+    if "isn't allowed" in val or 'not allowed' in val:
+        print('ERR_PARSE    该用户名不被允许使用')
+        sys.exit()
+
+print('ERR_PARSE    ' + raw[:120].replace('\n', ' '))
 PYEOF
 )
 
-  local tag="${verdict%%  *}"
-  local detail="${verdict#*  }"
+  local tag detail
+  if [[ "$verdict" == *"  "* ]]; then
+    tag="${verdict%%  *}"
+    detail="${verdict#*  }"
+  else
+    tag="$verdict"
+    detail=""
+  fi
 
   case "$tag" in
     AVAILABLE)
       printf "[%d字符] %-20s  ✅ 可用\n" "$len" "${username}@gmail.com"
       ;;
     TAKEN)
-      printf "[%d字符] %-20s  ❌ 已注册   %s\n" "$len" "${username}@gmail.com" "$detail"
+      if [[ -n "$detail" ]]; then
+        printf "[%d字符] %-20s  ❌ 已注册   %s\n" "$len" "${username}@gmail.com" "$detail"
+      else
+        printf "[%d字符] %-20s  ❌ 已注册\n" "$len" "${username}@gmail.com"
+      fi
+      ;;
+    ERR_LENGTH|ERR_PARSE)
+      printf "[%d字符] %-20s  ⚠️  %s\n" "$len" "${username}@gmail.com" "$detail"
       ;;
     ERR_SESSION)
       printf "[%d字符] %-20s  ⚠️  %s\n" "$len" "${username}@gmail.com" "$detail"
