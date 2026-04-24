@@ -56,55 +56,109 @@ export function parseGoogleResponse(raw: string, username: string): CheckResult 
     suggestions: [],
   };
 
-  const m = raw.match(/"NHJMOd","(\[.*?\])"/);
+  const payloads = extractResponsePayloads(raw);
 
-  if (!m) {
-    if (raw.includes("401") || raw.includes("Unauthorized")) {
-      return { ...base, message: "Session 已过期，请重新粘贴 curl 命令" };
-    }
-    if (raw.includes("steps/signup/password")) {
+  if (raw.includes("401") || raw.includes("Unauthorized")) {
+    return { ...base, message: "Session 已过期，请重新粘贴 curl 命令" };
+  }
+  if (!raw.trim()) {
+    return { ...base, message: "响应为空，session 可能已过期" };
+  }
+  if (raw.includes('"er"')) {
+    return { ...base, message: "Session 已过期，请重新粘贴 curl 命令" };
+  }
+
+  for (const val of payloads) {
+    if (val.includes("steps/signup/password")) {
       return { ...base, status: "available" };
     }
-    if (!raw.trim()) {
-      return { ...base, message: "响应为空，session 可能已过期" };
-    }
-    if (raw.includes('"er"')) {
-      return { ...base, message: "Session 已过期，请重新粘贴 curl 命令" };
-    }
-    return { ...base, message: `无法解析响应: ${raw.slice(0, 120)}` };
   }
 
-  const val = m[1];
+  for (const val of payloads) {
+    if (val.trim() === "[null,[]]" || val.includes("[null,[]]")) {
+      return { ...base, status: "taken" };
+    }
 
-  if (val === "[null,[]]") {
-    return { ...base, status: "taken" };
-  }
-
-  if (val.includes("[null,[[")) {
-    try {
-      const parsed = JSON.parse(val);
-      const suggestions: string[] = parsed[1]?.[0] || [];
+    if (val.includes("[null,[[")) {
+      const suggestions = extractSuggestions(val);
       return {
         ...base,
         status: "taken",
         suggestions: suggestions.slice(0, 3),
       };
-    } catch {
-      return { ...base, status: "taken" };
+    }
+
+    if (val.includes("must be between")) {
+      return { ...base, message: "用户名长度不符合要求（需 6-30 字符）" };
+    }
+
+    if (val.includes("isn't allowed") || val.includes("not allowed")) {
+      return { ...base, status: "error", message: "该用户名不被允许使用" };
     }
   }
 
-  if (val.includes("steps/signup/password")) {
-    return { ...base, status: "available" };
+  return { ...base, message: `无法解析响应: ${raw.slice(0, 120).replace(/\s+/g, " ")}` };
+}
+
+function extractSuggestions(val: string): string[] {
+  try {
+    const parsed = JSON.parse(val);
+    const suggestions = parsed[1]?.[0];
+    if (Array.isArray(suggestions)) {
+      return suggestions.filter((v): v is string => typeof v === "string");
+    }
+  } catch {
+    // Fall through to regex extraction below.
   }
 
-  if (val.includes("must be between")) {
-    return { ...base, message: "用户名长度不符合要求（需 6-30 字符）" };
+  const matches = [...val.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  return matches;
+}
+
+function extractResponsePayloads(raw: string): string[] {
+  const values: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (value: string) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    values.push(value);
+  };
+
+  const walk = (node: unknown) => {
+    if (typeof node === "string") {
+      add(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (node && typeof node === "object") {
+      for (const item of Object.values(node)) walk(item);
+    }
+  };
+
+  add(raw);
+
+  for (const match of raw.matchAll(/"NHJMOd","((?:\\.|[^"])*)"/g)) {
+    try {
+      add(JSON.parse(`"${match[1]}"`));
+    } catch {
+      add(match[1]);
+    }
   }
 
-  if (val.includes("isn't allowed") || val.includes("not allowed")) {
-    return { ...base, status: "error", message: "该用户名不被允许使用" };
+  const normalized = raw.replace(/^\)\]\}'\s*/, "");
+  for (const line of normalized.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || /^\d+$/.test(trimmed)) continue;
+    try {
+      walk(JSON.parse(trimmed));
+    } catch {
+      add(trimmed);
+    }
   }
 
-  return { ...base, message: `未知响应: ${val.slice(0, 80)}` };
+  return values;
 }
