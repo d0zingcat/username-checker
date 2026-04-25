@@ -1,6 +1,6 @@
 # username-checker
 
-批量检查 Gmail 用户名是否可用，基于 Google 官方注册 API（`NHJMOd`）。
+批量检查 Gmail、GitHub、X 用户名是否可用。Gmail 基于 Google 官方注册 API（`NHJMOd`），GitHub/X 通过公开 profile 页面检查。
 
 提供两种使用方式：命令行脚本和 Web 界面。
 
@@ -15,8 +15,8 @@ bun run dev
 
 浏览器打开 `http://localhost:3000`，三步完成检查：
 
-1. 从 DevTools 复制 curl 命令粘贴到页面，点击「解析」
-2. 输入想查的用户名（每行一个）
+1. 选择要检查的平台；如需检查 Gmail，从 DevTools 复制 curl 命令粘贴到页面，点击「解析」
+2. 输入想查的用户名（每行一个，不需要加 `@`）
 3. 点击「开始检查」，结果实时展示
 
 ## 命令行

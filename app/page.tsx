@@ -2,7 +2,23 @@
 
 import { useState, useRef, useCallback } from "react";
 import { parseCurlCommand, type SessionParams } from "@/lib/curl-parser";
-import type { CheckResult } from "@/lib/gmail-checker";
+import type { CheckPlatform, CheckResult } from "@/lib/gmail-checker";
+
+const PLATFORM_LABELS: Record<CheckPlatform, string> = {
+  gmail: "Gmail",
+  github: "GitHub",
+  x: "X",
+};
+
+const PLATFORM_SUFFIXES: Record<CheckPlatform, string> = {
+  gmail: "@gmail.com",
+  github: "",
+  x: "",
+};
+
+type CheckResponse = {
+  results: CheckResult[];
+};
 
 export default function Home() {
   const [curlInput, setCurlInput] = useState("");
@@ -11,10 +27,21 @@ export default function Home() {
   const [parseSuccess, setParseSuccess] = useState(false);
 
   const [usernameInput, setUsernameInput] = useState("");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<CheckPlatform[]>([
+    "gmail",
+    "github",
+    "x",
+  ]);
   const [results, setResults] = useState<CheckResult[]>([]);
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const abortRef = useRef(false);
+  const needsGmailSession = selectedPlatforms.includes("gmail");
+  const canCheck =
+    selectedPlatforms.length > 0 &&
+    usernameInput.trim().length > 0 &&
+    !checking &&
+    (!needsGmailSession || Boolean(session));
 
   const handleParse = useCallback(() => {
     setParseSuccess(false);
@@ -30,7 +57,8 @@ export default function Home() {
   }, [curlInput]);
 
   const handleCheck = useCallback(async () => {
-    if (!session) return;
+    if (selectedPlatforms.length === 0) return;
+    if (selectedPlatforms.includes("gmail") && !session) return;
     const usernames = usernameInput
       .split("\n")
       .map((s) => s.trim())
@@ -51,14 +79,22 @@ export default function Home() {
         const resp = await fetch("/api/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: usernames[i], ...session }),
+          body: JSON.stringify({
+            username: usernames[i],
+            platforms: selectedPlatforms,
+            ...session,
+          }),
         });
-        const result: CheckResult = await resp.json();
-        setResults((prev) => [...prev, result]);
+        const payload: CheckResponse = await resp.json();
+        setResults((prev) => [...prev, ...payload.results]);
 
         if (
-          result.status === "error" &&
-          result.message.includes("过期")
+          payload.results.some(
+            (result) =>
+              result.platform === "gmail" &&
+              result.status === "error" &&
+              result.message.includes("过期")
+          )
         ) {
           abortRef.current = true;
           break;
@@ -67,6 +103,7 @@ export default function Home() {
         setResults((prev) => [
           ...prev,
           {
+            platform: "gmail",
             username: usernames[i],
             status: "error",
             message: "请求失败",
@@ -80,22 +117,49 @@ export default function Home() {
       }
     }
     setChecking(false);
-  }, [session, usernameInput]);
+  }, [selectedPlatforms, session, usernameInput]);
 
   const handleStop = useCallback(() => {
     abortRef.current = true;
   }, []);
 
+  const togglePlatform = useCallback((platform: CheckPlatform) => {
+    setSelectedPlatforms((prev) =>
+      prev.includes(platform)
+        ? prev.filter((item) => item !== platform)
+        : [...prev, platform]
+    );
+  }, []);
+
   return (
-    <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Gmail Username Checker</h1>
+    <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight">Username Checker</h1>
       <p className="text-sm text-foreground/60">
-        粘贴从 DevTools 复制的 curl 命令，输入想查的用户名，批量检查可用性。
+        输入想查的用户名，批量检查 Gmail、GitHub、X 的可用性。
       </p>
+
+      <section className="space-y-2">
+        <label className="block text-sm font-medium">检查平台</label>
+        <div className="flex flex-wrap gap-2">
+          {(["gmail", "github", "x"] as CheckPlatform[]).map((platform) => (
+            <label
+              key={platform}
+              className="flex items-center gap-2 rounded-lg border border-foreground/10 px-3 py-2 text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={selectedPlatforms.includes(platform)}
+                onChange={() => togglePlatform(platform)}
+              />
+              {PLATFORM_LABELS[platform]}
+            </label>
+          ))}
+        </div>
+      </section>
 
       {/* Curl Input */}
       <section className="space-y-2">
-        <label className="block text-sm font-medium">Curl 命令</label>
+        <label className="block text-sm font-medium">Gmail Curl 命令</label>
         <textarea
           className="w-full h-32 rounded-lg border border-foreground/10 bg-foreground/[.03] p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
           placeholder={"curl 'https://accounts.google.com/lifecycle/...' \\\n  -H 'content-type: ...' \\\n  -b '__Host-GAPS=...; NID=...' \\\n  --data-raw 'f.req=...&at=...&'"}
@@ -144,7 +208,7 @@ export default function Home() {
       <div className="flex items-center gap-3">
         <button
           onClick={handleCheck}
-          disabled={!session || !usernameInput.trim() || checking}
+          disabled={!canCheck}
           className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors"
         >
           {checking ? `检查中 ${progress.current}/${progress.total}...` : "开始检查"}
@@ -156,6 +220,9 @@ export default function Home() {
           >
             停止
           </button>
+        )}
+        {needsGmailSession && !session && (
+          <span className="text-sm text-yellow-600">Gmail 检查需要先解析 curl</span>
         )}
       </div>
 
@@ -173,6 +240,7 @@ export default function Home() {
               <thead>
                 <tr className="bg-foreground/[.03] text-left text-xs text-foreground/50">
                   <th className="px-3 py-2">用户名</th>
+                  <th className="px-3 py-2">平台</th>
                   <th className="px-3 py-2 w-12">长度</th>
                   <th className="px-3 py-2">状态</th>
                   <th className="px-3 py-2">备注</th>
@@ -190,7 +258,16 @@ export default function Home() {
                           : ""
                     }
                   >
-                    <td className="px-3 py-1.5 font-mono">{r.username}@gmail.com</td>
+                    <td className="px-3 py-1.5 font-mono">
+                      {r.url ? (
+                        <a href={r.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                          {r.username}{PLATFORM_SUFFIXES[r.platform]}
+                        </a>
+                      ) : (
+                        `${r.username}${PLATFORM_SUFFIXES[r.platform]}`
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5">{PLATFORM_LABELS[r.platform]}</td>
                     <td className="px-3 py-1.5 text-foreground/50">{r.username.length}</td>
                     <td className="px-3 py-1.5">
                       {r.status === "available" && <span className="text-green-600">可用</span>}
