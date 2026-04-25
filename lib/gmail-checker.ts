@@ -1,10 +1,14 @@
 import type { SessionParams } from "./curl-parser";
 
+export type CheckPlatform = "gmail" | "github" | "x";
+
 export interface CheckResult {
+  platform: CheckPlatform;
   username: string;
   status: "available" | "taken" | "error";
   message: string;
   suggestions: string[];
+  url?: string;
 }
 
 export function buildGoogleRequest(
@@ -50,6 +54,7 @@ export function buildGoogleRequest(
 
 export function parseGoogleResponse(raw: string, username: string): CheckResult {
   const base: CheckResult = {
+    platform: "gmail",
     username,
     status: "error",
     message: "",
